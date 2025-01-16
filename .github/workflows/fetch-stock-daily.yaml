@@ -1,0 +1,27 @@
+name: Fetch Stock Daily
+
+on:
+  schedule:
+    - cron: "0 15 * * *" # UTC 时间 15:00，即 UTC+8 的凌晨 23:00
+  workflow_dispatch: # 允许手动触发
+
+jobs:
+  fetch-timeline:
+    runs-on: ubuntu-latest
+    env:
+      TOKEN: ${{ secrets.TOKEN }}
+      PGURL: ${{ secrets.PGURL }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Run script
+        run: bun run scripts/daily.ts
