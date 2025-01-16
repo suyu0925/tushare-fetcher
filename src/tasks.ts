@@ -1,7 +1,7 @@
 import cliProgress from 'cli-progress'
 import { startOfToday } from 'date-fns'
 import _ from 'lodash'
-import { queryAllStockBasic, queryLatestDailyMd, upsertDailyMd, upsertStockBasic } from './db'
+import { queryAllStockBasic, queryLatestDailyMd, upsertAdjFactor, upsertDailyMd, upsertStockBasic } from './db'
 import tushare, { AllStockBasicFields, dateToTsDate, type TsDate } from './tushare'
 
 if (!process.env.TOKEN) {
@@ -59,9 +59,9 @@ export const fetchMissingDailyMd = async () => {
 }
 
 export const fetchAllDailyMd = async () => {
-  const bar = new cliProgress.SingleBar({}, cliProgress.Presets.shades_classic)
-
   const items = await queryAllStockBasic()
+
+  const bar = new cliProgress.SingleBar({}, cliProgress.Presets.shades_classic)
   bar.start(items.length, 0)
 
   const chunkLength = 2
@@ -77,5 +77,26 @@ export const fetchAllDailyMd = async () => {
     bar.increment(chunkLength)
   }
 
+  bar.stop()
+}
+
+export const fetchDailyAdjFactor = async () => {
+  const adjFactor = await ts.fetchAdjFactor({
+    trade_date: dateToTsDate(new Date()),
+  })
+  await upsertAdjFactor(adjFactor)
+}
+
+export const fetchAllAdjFactor = async () => {
+  const items = await queryAllStockBasic()
+
+  const bar = new cliProgress.SingleBar({}, cliProgress.Presets.shades_classic)
+  bar.start(items.length, 0)
+
+  await Promise.all(items.map(async (item) => {
+    const adjFactor = await ts.fetchAdjFactor({ ts_code: item.ts_code })
+    await upsertAdjFactor(adjFactor)
+    bar.increment(1)
+  }))
   bar.stop()
 }

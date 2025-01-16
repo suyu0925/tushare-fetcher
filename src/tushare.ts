@@ -112,8 +112,8 @@ export type GetDailyResponse = ApiResponse<{
  */
 type GetTradeCalParams = {
   exchange?: ExchangeCode // 交易所，默认SSE
-  start_date: TsDate // 开始日期
-  end_date: TsDate // 结束日期
+  start_date?: TsDate // 开始日期
+  end_date?: TsDate // 结束日期
 }
 
 type GetTradeCalItem = {
@@ -136,10 +136,41 @@ export type GetTradeCalResponse = ApiResponse<{
   count: -1 // 这个字段在文档中没有描述，但是返回的实际数据中是-1
 }>
 
+/**
+ * 复权因子
+ * @see https://tushare.pro/document/2?doc_id=28
+ */
+type GetAdjFactorParams = {
+  ts_code?: string
+  trade_date?: TsDate
+  start_date?: TsDate
+  end_date?: TsDate
+}
+
+type GetAdjFactorItem = {
+  ts_code: string
+  trade_date: TsDate
+  adj_factor: number
+}
+
+type GetAdjFactorFields = keyof GetAdjFactorItem
+
+export const DefaultAdjFactorFields: GetAdjFactorFields[] = [
+  'ts_code', 'trade_date', 'adj_factor',
+]
+
+export type GetAdjFactorResponse = ApiResponse<{
+  fields: GetAdjFactorFields[]
+  items: GetAdjFactorItem[GetAdjFactorFields][][]
+  has_more: boolean
+  count: -1 // 这个字段在文档中没有描述，但是返回的实际数据中是-1
+}>
+
 type TushareApiMap = {
   'stock_basic': [GetStockBasicParams, GetStockBasicFields, GetStockBasicResponse]
   'daily': [GetDailyParams, GetDailyFields, GetDailyResponse]
   'trade_cal': [GetTradeCalParams, GetTradeCalFields, GetTradeCalResponse]
+  'adj_factor': [GetAdjFactorParams, GetAdjFactorFields, GetAdjFactorResponse]
 }
 
 /**
@@ -185,7 +216,11 @@ export default class Tushare {
     return await this._fetch('daily', params, fields)
   }
 
-  async fetchTradeCal(params: GetTradeCalParams, fields: GetTradeCalFields[] = DefaultTradeCalFields) {
+  async fetchTradeCal(params: GetTradeCalParams = {}, fields: GetTradeCalFields[] = DefaultTradeCalFields) {
     return await this._fetch('trade_cal', params, fields)
+  }
+
+  async fetchAdjFactor(params: GetAdjFactorParams, fields: GetAdjFactorFields[] = DefaultAdjFactorFields) {
+    return await this._fetch('adj_factor', params, fields)
   }
 }

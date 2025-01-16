@@ -1,7 +1,7 @@
 import { addDays } from 'date-fns'
 import _ from 'lodash'
 import pg from 'pg'
-import { dateToTsDate, type GetDailyResponse, type GetStockBasicItem, type GetStockBasicResponse, type TsDate } from './tushare'
+import { dateToTsDate, type GetAdjFactorResponse, type GetDailyResponse, type GetStockBasicItem, type GetStockBasicResponse, type TsDate } from './tushare'
 
 if (!process.env.PGURL) {
   throw new Error('PGURL environment variable is required')
@@ -114,6 +114,43 @@ export const upsertDailyMd = async (res: GetDailyResponse) => {
   }
 }
 
+export const upsertAdjFactor = async (res: GetAdjFactorResponse) => {
+  const { data } = res
+  const values = data.items
+  if (values.length === 0) {
+    return
+  }
+
+  // 使用事务，保证当日行情数据的插入一致性
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    await Promise.all(_.chunk(values, 1000)
+      .map(async (chunk) => {
+        // 为每行数据创建参数占位符
+        const valueParams = chunk.map((_, rowIndex) =>
+          `(${data.fields.map((_, colIndex) => `$${rowIndex * data.fields.length + colIndex + 1}`).join(', ')})`
+        ).join(',\n    ')
+
+        const query = `
+      INSERT INTO adj_factor (${data.fields.join(', ')}) 
+      VALUES ${valueParams}
+      ON CONFLICT (ts_code, trade_date) 
+      DO UPDATE SET ${data.fields
+            .filter(field => field !== 'ts_code' && field !== 'trade_date') // 排除主键
+            .map(field => `${field} = EXCLUDED.${field}`)
+            .join(', ')}`
+        await client.query(query, chunk.flat())
+      }))
+    await client.query('COMMIT')
+  } catch (e) {
+    await client.query('ROLLBACK')
+    throw e
+  } finally {
+    client.release()
+  }
+}
+
 export const initDb = async () => {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS stock_basic (
@@ -158,6 +195,17 @@ export const initDb = async () => {
     );
     CREATE INDEX IF NOT EXISTS idx_ts_code ON daily_md (ts_code);
     CREATE INDEX IF NOT EXISTS idx_trade_date ON daily_md (trade_date);
+  `)
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS adj_factor (
+      ts_code text NOT NULL,
+      trade_date text NOT NULL,
+      adj_factor numeric NOT NULL,
+      PRIMARY KEY (ts_code, trade_date)
+    );
+    CREATE INDEX IF NOT EXISTS idx_ts_code ON adj_factor (ts_code);
+    CREATE INDEX IF NOT EXISTS idx_trade_date ON adj_factor (trade_date);
   `)
 }
 
