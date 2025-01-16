@@ -1,4 +1,6 @@
+import { format, parse } from 'date-fns'
 import type { Tagged } from 'type-fest'
+import { RateLimiter } from './rateLimiter'
 
 type ApiResponse<T> = {
   request_id: string
@@ -7,7 +9,10 @@ type ApiResponse<T> = {
   msg: string
 }
 
-type TsDate = Tagged<string, 'TsDate'> // 日期（YYYYMMDD）
+export type TsDate = Tagged<string, 'TsDate'> // 日期（YYYYMMDD）
+
+export const tsDateToDate = (tsDate: TsDate): Date => parse(tsDate, 'yyyyMMdd', new Date())
+export const dateToTsDate = (date: Date): TsDate => format(date, 'yyyyMMdd') as TsDate
 
 type ListStatus = 'L' | 'D' | 'P'  // 上市状态 L上市 D退市 P暂停上市
 
@@ -61,16 +66,18 @@ export type GetStockBasicResponse = ApiResponse<{
 
 /**
  * A股日线行情
+ * 数据说明：交易日每天15点～16点之间入库。本接口是未复权行情，停牌期间不提供数据
  * @see https://tushare.pro/document/2?doc_id=27
  */
 type GetDailyParams = {
   ts_code: string // 股票代码（支持多个股票同时提取，逗号分隔）
-  trade_date?: TsDate // 交易日期
   start_date?: TsDate // 开始日期
   end_date?: TsDate // 结束日期
+} | {
+  trade_date: TsDate
 }
 
-type GetDailyItem = {
+export type GetDailyItem = {
   ts_code: string // 股票代码
   trade_date: TsDate // 交易日期
   open: number // 开盘价
@@ -99,29 +106,67 @@ export type GetDailyResponse = ApiResponse<{
   count: -1 // 这个字段在文档中没有描述，但是返回的实际数据中是-1
 }>
 
+/**
+ * 交易日历
+ * @see https://tushare.pro/document/2?doc_id=26
+ */
+type GetTradeCalParams = {
+  exchange?: ExchangeCode // 交易所，默认SSE
+  start_date: TsDate // 开始日期
+  end_date: TsDate // 结束日期
+}
+
+type GetTradeCalItem = {
+  exchange: ExchangeCode // 交易所
+  cal_date: TsDate // 日期
+  is_open: '0' | '1' // 是否交易 0休市 1交易
+  pretrade_date?: TsDate // 上一个交易日
+}
+
+type GetTradeCalFields = keyof GetTradeCalItem
+
+export const DefaultTradeCalFields: GetTradeCalFields[] = [
+  'exchange', 'cal_date', 'is_open',
+]
+
+export type GetTradeCalResponse = ApiResponse<{
+  fields: GetTradeCalFields[]
+  items: GetTradeCalItem[GetTradeCalFields][][]
+  has_more: boolean
+  count: -1 // 这个字段在文档中没有描述，但是返回的实际数据中是-1
+}>
+
 type TushareApiMap = {
   'stock_basic': [GetStockBasicParams, GetStockBasicFields, GetStockBasicResponse]
   'daily': [GetDailyParams, GetDailyFields, GetDailyResponse]
+  'trade_cal': [GetTradeCalParams, GetTradeCalFields, GetTradeCalResponse]
 }
 
+/**
+ * Api请求限流：每分钟200次，每天100000次
+ */
 export default class Tushare {
+  private rateLimiter: RateLimiter
+
   constructor(private token: string) {
+    this.rateLimiter = new RateLimiter(60, 200)
   }
 
   private async _fetch<K extends keyof TushareApiMap, T = TushareApiMap[K][2], F = TushareApiMap[K][1]>(api_name: K, params: TushareApiMap[K][0], fields: F[]) {
     const url = `http://api.waditu.com`
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        api_name,
-        token: this.token,
-        params,
-        fields,
-      })
-    })
+    const response = await this.rateLimiter.execute(
+      () => fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          api_name,
+          token: this.token,
+          params,
+          fields,
+        })
+      }))
     return await response.json() as T
   }
 
@@ -138,5 +183,9 @@ export default class Tushare {
     ts_code: '000001.SZ',
   }, fields: GetDailyFields[] = AllDailyFields) {
     return await this._fetch('daily', params, fields)
+  }
+
+  async fetchTradeCal(params: GetTradeCalParams, fields: GetTradeCalFields[] = DefaultTradeCalFields) {
+    return await this._fetch('trade_cal', params, fields)
   }
 }

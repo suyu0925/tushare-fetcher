@@ -4,14 +4,8 @@ fetch data from tushare scheduled
 
 ## Usage
 
-daily update.
+daily update, run after 16:00.
 
 ```bash
-bun run src/index.ts
-```
-
-fetch all daily md.
-
-```bash
-bun run src/test.ts
+bun run scripts/daily.ts
 ```

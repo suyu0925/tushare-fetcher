@@ -1,7 +1,8 @@
 import cliProgress from 'cli-progress'
+import { startOfToday } from 'date-fns'
 import _ from 'lodash'
-import { queryAllListedStockBasic, queryAllStockBasic, upsertDailyMd, upsertStockBasic } from './db'
-import tushare, { AllStockBasicFields } from './tushare'
+import { queryAllStockBasic, queryLatestDailyMd, upsertDailyMd, upsertStockBasic } from './db'
+import tushare, { AllStockBasicFields, dateToTsDate, type TsDate } from './tushare'
 
 if (!process.env.TOKEN) {
   throw new Error('TOKEN environment variable is required')
@@ -9,7 +10,7 @@ if (!process.env.TOKEN) {
 
 export const ts = new tushare(process.env.TOKEN)
 
-export const stockBasic = async () => {
+export const fetchAllStockBasic = async () => {
   const listed = await ts.fetchStockBasic({
     list_status: 'L',
   }, AllStockBasicFields)
@@ -23,12 +24,38 @@ export const stockBasic = async () => {
   await upsertStockBasic(delisted)
 }
 
-export const dailyMd = async () => {
-  const items = await queryAllListedStockBasic()
+export const fetchDailyMd = async () => {
   const daily = await ts.fetchDailyMd({
-    ts_code: items.map(item => item.ts_code).join(','),
+    trade_date: dateToTsDate(new Date()),
   })
   await upsertDailyMd(daily)
+}
+
+export const fetchMissingDailyMd = async () => {
+  const latestDate = await queryLatestDailyMd()
+  if (!latestDate) {
+    // 如果数据库中没有记录，则直接更新所有数据
+    await fetchAllDailyMd()
+    return
+  }
+
+  const dates = ((await ts.fetchTradeCal({
+    start_date: latestDate,
+    end_date: dateToTsDate(startOfToday()),
+  })).data.items.map((item) => item[1] as TsDate)).sort()
+
+  const bar = new cliProgress.SingleBar({}, cliProgress.Presets.shades_classic)
+  bar.start(dates.length, 0)
+
+  await Promise.all(dates.map(async (date) => {
+    const daily = await ts.fetchDailyMd({
+      trade_date: date,
+    })
+    await upsertDailyMd(daily)
+    bar.increment(1)
+  }))
+
+  bar.stop()
 }
 
 export const fetchAllDailyMd = async () => {
