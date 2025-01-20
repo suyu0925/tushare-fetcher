@@ -2,7 +2,7 @@ name: Fetch Stock Daily
 
 on:
   schedule:
-    - cron: "0 15 * * *" # UTC 时间 15:00，即 UTC+8 的凌晨 23:00
+    - cron: "0 8 * * *" # 收盘后16: 00运行，即UTC 时间 08:00
   workflow_dispatch: # 允许手动触发
 
 jobs:
